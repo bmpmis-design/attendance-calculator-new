@@ -9,12 +9,14 @@ st.title("📊 Attendance Calculator")
 st.markdown("Upload your raw Excel attendance report to automatically calculate and view summary statistics")
 
 # File upload
-uploaded_file = st.file_uploader("Upload Excel File (.xls or .xlsx)", type=['xls', 'xlsx'])
+uploaded_file = st.file_uploader("Upload Excel File (.xlsx)", type=['xlsx'])
 
 if uploaded_file is not None:
     try:
-        # Read Excel file - simple approach that works for both formats
-        df = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+        # Read Excel file using openpyxl engine
+        df = pd.read_excel(uploaded_file, sheet_name=0, header=None, engine='openpyxl')
+        
+        st.success("✅ File uploaded successfully!")
         
         # Parse attendance data
         employees = {}
@@ -29,19 +31,21 @@ if uploaded_file is not None:
         current_employee = None
         is_data_section = False
         
-        for i, row in df.iterrows():
-            if len(row) == 0 or all(pd.isna(row)):
-                continue
+        # Iterate through rows
+        for i in range(len(df)):
+            row = df.iloc[i]
             
+            # Get first column value
             first_col = str(row.iloc[0] if len(row) > 0 else '').strip().lower()
             
-            # Check for employee code
-            if 'emp code' in first_col and i + 1 < len(df):
-                next_row = df.iloc[i + 1]
-                if len(next_row) > 4:
-                    try:
-                        emp_code = str(next_row.iloc[4]).strip()
-                        emp_name = str(next_row.iloc[6]) if len(next_row) > 6 else f"Employee {emp_code}"
+            # Look for employee code marker
+            if 'emp code' in first_col:
+                if i + 1 < len(df):
+                    next_row = df.iloc[i + 1]
+                    if len(next_row) > 6:
+                        emp_code = str(next_row.iloc[4]).strip() if pd.notna(next_row.iloc[4]) else "Unknown"
+                        emp_name = str(next_row.iloc[6]).strip() if pd.notna(next_row.iloc[6]) else f"Employee {emp_code}"
+                        
                         current_employee = {
                             'code': emp_code,
                             'name': emp_name,
@@ -54,39 +58,36 @@ if uploaded_file is not None:
                             }
                         }
                         employees[emp_code] = current_employee
-                    except:
-                        pass
             
-            # Check for data section
+            # Look for attendance date marker
             if 'att. date' in first_col or 'att.date' in first_col:
                 is_data_section = True
                 continue
             
-            # Process attendance data
-            if is_data_section and current_employee:
-                try:
-                    if len(row) > 12 and pd.notna(row.iloc[12]):
-                        status = str(row.iloc[12]).strip()
-                        current_employee['stats']['total'] += 1
-                        
-                        if status == 'Present':
-                            current_employee['stats']['present'] += 1
-                            overall_stats['presentDays'] += 1
-                        elif status == 'Absent':
-                            current_employee['stats']['absent'] += 1
-                            overall_stats['absentDays'] += 1
-                        elif status == 'WeeklyOff':
-                            current_employee['stats']['weeklyOff'] += 1
-                            overall_stats['weeklyOff'] += 1
-                        elif 'Leave' in status or status == 'Leave':
-                            current_employee['stats']['leave'] += 1
-                            overall_stats['leaves'] += 1
-                except:
-                    pass
+            # Process attendance records
+            if is_data_section and current_employee and len(row) > 12:
+                if pd.notna(row.iloc[12]):
+                    status = str(row.iloc[12]).strip()
+                    current_employee['stats']['total'] += 1
+                    
+                    if status == 'Present':
+                        current_employee['stats']['present'] += 1
+                        overall_stats['presentDays'] += 1
+                    elif status == 'Absent':
+                        current_employee['stats']['absent'] += 1
+                        overall_stats['absentDays'] += 1
+                    elif status == 'WeeklyOff':
+                        current_employee['stats']['weeklyOff'] += 1
+                        overall_stats['weeklyOff'] += 1
+                    elif 'Leave' in status:
+                        current_employee['stats']['leave'] += 1
+                        overall_stats['leaves'] += 1
             
-            if 'total duration' in first_col and current_employee:
+            # End data section
+            if 'total duration' in first_col:
                 is_data_section = False
         
+        # Calculate totals
         overall_stats['totalDays'] = (overall_stats['presentDays'] + 
                                       overall_stats['absentDays'] + 
                                       overall_stats['leaves'] + 
@@ -108,22 +109,27 @@ if uploaded_file is not None:
         with col5:
             st.metric("Weekly Off", overall_stats['weeklyOff'])
         with col6:
-            attendance_pct = (round((overall_stats['presentDays'] / overall_stats['totalDays'] * 100)) 
-                            if overall_stats['totalDays'] > 0 else 0)
+            if overall_stats['totalDays'] > 0:
+                attendance_pct = round((overall_stats['presentDays'] / overall_stats['totalDays'] * 100))
+            else:
+                attendance_pct = 0
             st.metric("Attendance %", f"{attendance_pct}%")
         
         # Display Employee Details
         st.subheader("👥 Employee Details")
         
-        if employees:
+        if len(employees) > 0:
             # Sort employees by name
             sorted_employees = sorted(employees.values(), key=lambda x: x['name'])
             
             # Create table data
             table_data = []
             for emp in sorted_employees:
-                attendance = (round((emp['stats']['present'] / emp['stats']['total'] * 100)) 
-                            if emp['stats']['total'] > 0 else 0)
+                if emp['stats']['total'] > 0:
+                    attendance = round((emp['stats']['present'] / emp['stats']['total'] * 100))
+                else:
+                    attendance = 0
+                    
                 table_data.append({
                     'Employee Name': emp['name'],
                     'Employee Code': emp['code'],
@@ -135,40 +141,32 @@ if uploaded_file is not None:
                     'Attendance %': f"{attendance}%"
                 })
             
-            # Display as table
+            # Display table
             table_df = pd.DataFrame(table_data)
             st.dataframe(table_df, use_container_width=True, hide_index=True)
             
-            # Download button
+            # Download Report
             st.subheader("💾 Download Report")
             
-            # Create Excel report
             output = io.BytesIO()
+            
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 # Summary sheet
                 summary_data = {
-                    'Metric': [
-                        'Total Working Days',
-                        'Days Present',
-                        'Days Absent',
-                        'Leaves Taken',
-                        'Weekly Off Days',
-                        'Overall Attendance %'
-                    ],
+                    'Metric': ['Total Working Days', 'Days Present', 'Days Absent', 'Leaves Taken', 'Weekly Off Days', 'Overall Attendance %'],
                     'Value': [
                         overall_stats['totalDays'],
                         overall_stats['presentDays'],
                         overall_stats['absentDays'],
                         overall_stats['leaves'],
                         overall_stats['weeklyOff'],
-                        (round((overall_stats['presentDays'] / overall_stats['totalDays'] * 100)) 
-                         if overall_stats['totalDays'] > 0 else 0)
+                        (round((overall_stats['presentDays'] / overall_stats['totalDays'] * 100)) if overall_stats['totalDays'] > 0 else 0)
                     ]
                 }
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Summary', index=False)
                 
-                # Employee details sheet
+                # Employee sheet
                 table_df.to_excel(writer, sheet_name='Employee Details', index=False)
             
             output.seek(0)
@@ -180,25 +178,11 @@ if uploaded_file is not None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.warning("No employee data found in the uploaded file")
+            st.warning("⚠️ No employee data found")
     
     except Exception as e:
-        st.error(f"❌ Error processing file: {str(e)}")
-        st.info("Please make sure your Excel file has the correct format with attendance data")
+        st.error(f"❌ Error: {str(e)}")
+        st.info("Make sure your Excel file has the correct attendance format")
 
 else:
-    st.info("👆 Upload an Excel attendance file to get started")
-    st.markdown("""
-    ### How to use:
-    1. **Upload** your raw Excel attendance report
-    2. **View** the overall attendance summary
-    3. **See** employee-wise breakdown
-    4. **Download** the report as Excel
-    
-    ### File Format:
-    Your Excel file should contain:
-    - Employee Code
-    - Employee Name
-    - Attendance Date
-    - Status (Present, Absent, Leave, WeeklyOff)
-    """)
+    st.info("👆 Upload an Excel file (.xlsx) to begin")
