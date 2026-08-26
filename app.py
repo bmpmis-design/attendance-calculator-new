@@ -13,8 +13,11 @@ uploaded_file = st.file_uploader("Upload Excel File (.xls or .xlsx)", type=['xls
 
 if uploaded_file is not None:
     try:
-        # Read Excel file
-        df = pd.read_excel(uploaded_file, sheet_name=0, header=None)
+        # Read Excel file - handle both .xls and .xlsx
+        if uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file, sheet_name=0, header=None, engine='openpyxl')
+        else:  # .xls files
+            df = pd.read_excel(uploaded_file, sheet_name=0, header=None, engine='xlrd')
         
         # Parse attendance data
         employees = {}
