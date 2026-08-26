@@ -13,11 +13,8 @@ uploaded_file = st.file_uploader("Upload Excel File (.xls or .xlsx)", type=['xls
 
 if uploaded_file is not None:
     try:
-        # Read Excel file - handle both .xls and .xlsx
-        if uploaded_file.name.endswith('.xlsx'):
-            df = pd.read_excel(uploaded_file, sheet_name=0, header=None, engine='openpyxl')
-        else:  # .xls files
-            df = pd.read_excel(uploaded_file, sheet_name=0, header=None, engine='xlrd')
+        # Read Excel file - simple approach that works for both formats
+        df = pd.read_excel(uploaded_file, sheet_name=0, header=None)
         
         # Parse attendance data
         employees = {}
@@ -26,8 +23,7 @@ if uploaded_file is not None:
             'presentDays': 0,
             'absentDays': 0,
             'leaves': 0,
-            'weeklyOff': 0,
-            'holidays': 0
+            'weeklyOff': 0
         }
         
         current_employee = None
@@ -42,22 +38,24 @@ if uploaded_file is not None:
             # Check for employee code
             if 'emp code' in first_col and i + 1 < len(df):
                 next_row = df.iloc[i + 1]
-                if len(next_row) > 4 and pd.notna(next_row.iloc[4]):
-                    emp_code = str(next_row.iloc[4]).strip()
-                    emp_name = str(next_row.iloc[6]) if len(next_row) > 6 and pd.notna(next_row.iloc[6]) else f"Employee {emp_code}"
-                    current_employee = {
-                        'code': emp_code,
-                        'name': emp_name,
-                        'stats': {
-                            'present': 0,
-                            'absent': 0,
-                            'leave': 0,
-                            'weeklyOff': 0,
-                            'holiday': 0,
-                            'total': 0
+                if len(next_row) > 4:
+                    try:
+                        emp_code = str(next_row.iloc[4]).strip()
+                        emp_name = str(next_row.iloc[6]) if len(next_row) > 6 else f"Employee {emp_code}"
+                        current_employee = {
+                            'code': emp_code,
+                            'name': emp_name,
+                            'stats': {
+                                'present': 0,
+                                'absent': 0,
+                                'leave': 0,
+                                'weeklyOff': 0,
+                                'total': 0
+                            }
                         }
-                    }
-                    employees[emp_code] = current_employee
+                        employees[emp_code] = current_employee
+                    except:
+                        pass
             
             # Check for data section
             if 'att. date' in first_col or 'att.date' in first_col:
@@ -65,23 +63,26 @@ if uploaded_file is not None:
                 continue
             
             # Process attendance data
-            if is_data_section and current_employee and len(row) > 12 and pd.notna(row.iloc[3]):
-                if pd.notna(row.iloc[12]):
-                    status = str(row.iloc[12]).strip()
-                    current_employee['stats']['total'] += 1
-                    
-                    if status == 'Present':
-                        current_employee['stats']['present'] += 1
-                        overall_stats['presentDays'] += 1
-                    elif status == 'Absent':
-                        current_employee['stats']['absent'] += 1
-                        overall_stats['absentDays'] += 1
-                    elif status == 'WeeklyOff':
-                        current_employee['stats']['weeklyOff'] += 1
-                        overall_stats['weeklyOff'] += 1
-                    elif 'Leave' in status or status == 'Leave':
-                        current_employee['stats']['leave'] += 1
-                        overall_stats['leaves'] += 1
+            if is_data_section and current_employee:
+                try:
+                    if len(row) > 12 and pd.notna(row.iloc[12]):
+                        status = str(row.iloc[12]).strip()
+                        current_employee['stats']['total'] += 1
+                        
+                        if status == 'Present':
+                            current_employee['stats']['present'] += 1
+                            overall_stats['presentDays'] += 1
+                        elif status == 'Absent':
+                            current_employee['stats']['absent'] += 1
+                            overall_stats['absentDays'] += 1
+                        elif status == 'WeeklyOff':
+                            current_employee['stats']['weeklyOff'] += 1
+                            overall_stats['weeklyOff'] += 1
+                        elif 'Leave' in status or status == 'Leave':
+                            current_employee['stats']['leave'] += 1
+                            overall_stats['leaves'] += 1
+                except:
+                    pass
             
             if 'total duration' in first_col and current_employee:
                 is_data_section = False
